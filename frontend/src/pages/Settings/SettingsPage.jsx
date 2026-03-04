@@ -67,6 +67,7 @@ function SettingsPage() {
       case "metadata":
         return (
           <SettingsMetadataTab
+            authUser={authUser}
             settings={data.settings}
             updateSettings={data.updateSettings}
             health={data.health}
@@ -74,9 +75,13 @@ function SettingsPage() {
             saving={data.saving}
             handleSaveSettings={data.handleSaveSettings}
             refreshingDiscovery={data.refreshingDiscovery}
+            refreshingAllDiscovery={data.refreshingAllDiscovery}
             clearingCache={data.clearingCache}
+            clearingAllCache={data.clearingAllCache}
             handleRefreshDiscovery={data.handleRefreshDiscovery}
+            handleRefreshAllDiscovery={data.handleRefreshAllDiscovery}
             handleClearCache={data.handleClearCache}
+            handleClearAllCache={data.handleClearAllCache}
           />
         );
       case "notifications":

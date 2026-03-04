@@ -46,7 +46,9 @@ export function useSettingsData(showSuccess, showError, showInfo) {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [saving, setSaving] = useState(false);
   const [refreshingDiscovery, setRefreshingDiscovery] = useState(false);
+  const [refreshingAllDiscovery, setRefreshingAllDiscovery] = useState(false);
   const [clearingCache, setClearingCache] = useState(false);
+  const [clearingAllCache, setClearingAllCache] = useState(false);
   const [lidarrProfiles, setLidarrProfiles] = useState([]);
   const [loadingLidarrProfiles, setLoadingLidarrProfiles] = useState(false);
   const [lidarrMetadataProfiles, setLidarrMetadataProfiles] = useState([]);
@@ -169,6 +171,49 @@ export function useSettingsData(showSuccess, showError, showInfo) {
     }
   }, [showSuccess, showError]);
 
+  const handleRefreshAllDiscovery = useCallback(async () => {
+    if (refreshingAllDiscovery) return;
+    setRefreshingAllDiscovery(true);
+    try {
+      const result = await api.post("/discover/refresh-all");
+      showInfo(
+        `Discovery refresh started for global cache and ${result.data.userRefreshCount || 0} users. This may take a few minutes.`
+      );
+      const healthData = await checkHealth();
+      setHealth(healthData);
+    } catch (err) {
+      showError(
+        "Failed to start refresh all: " +
+          (err.response?.data?.message || err.response?.data?.error || err.message)
+      );
+    } finally {
+      setRefreshingAllDiscovery(false);
+    }
+  }, [refreshingAllDiscovery, showInfo, showError]);
+
+  const handleClearAllCache = useCallback(async () => {
+    if (
+      !window.confirm(
+        "Are you sure you want to clear ALL discovery and image caches (global and all users)? This will reset all recommendations until the next refresh."
+      )
+    )
+      return;
+    setClearingAllCache(true);
+    try {
+      await api.post("/discover/clear", { scope: "all" });
+      showSuccess("All caches cleared successfully.");
+      const healthData = await checkHealth();
+      setHealth(healthData);
+    } catch (err) {
+      showError(
+        "Failed to clear all caches: " +
+          (err.response?.data?.message || err.response?.data?.error || err.message)
+      );
+    } finally {
+      setClearingAllCache(false);
+    }
+  }, [showSuccess, showError]);
+
   const handleApplyCommunityGuide = useCallback(async () => {
     setShowCommunityGuideModal(false);
     setApplyingCommunityGuide(true);
@@ -258,9 +303,13 @@ export function useSettingsData(showSuccess, showError, showInfo) {
     fetchSettings,
     refreshHealth,
     refreshingDiscovery,
+    refreshingAllDiscovery,
     clearingCache,
+    clearingAllCache,
     handleRefreshDiscovery,
+    handleRefreshAllDiscovery,
     handleClearCache,
+    handleClearAllCache,
     lidarrProfiles,
     setLidarrProfiles,
     loadingLidarrProfiles,

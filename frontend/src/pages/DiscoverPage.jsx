@@ -20,6 +20,7 @@ import {
   getArtistCover,
 } from "../utils/api";
 import { useWebSocketChannel } from "../hooks/useWebSocket";
+import { useAuth } from "../contexts/AuthContext";
 import ArtistImage from "../components/ArtistImage";
 
 const TAG_COLORS = [
@@ -259,6 +260,7 @@ AlbumCard.propTypes = {
 };
 
 function DiscoverPage() {
+  const { user } = useAuth();
   const [data, setData] = useState(null);
   const [recentlyAdded, setRecentlyAdded] = useState([]);
   const [recentReleases, setRecentReleases] = useState([]);
@@ -295,7 +297,8 @@ function DiscoverPage() {
   });
 
   useEffect(() => {
-    getDiscovery()
+    setData(null);
+    getDiscovery(true)
       .then((discoveryData) => {
         setData(discoveryData);
         setError(null);
@@ -354,7 +357,7 @@ function DiscoverPage() {
     const interval = setInterval(pollDownloadStatus, 15000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     try {

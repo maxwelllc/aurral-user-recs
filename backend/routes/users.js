@@ -59,7 +59,7 @@ router.patch("/:id", requireAuth, (req, res) => {
     if (!existing) {
       return res.status(404).json({ error: "User not found" });
     }
-    const { password, permissions, role } = req.body;
+    const { password, permissions, role, lastfmUsername, lastfmDiscoveryPeriod } = req.body;
     if (isSelf && !isAdmin) {
       if (permissions !== undefined || role !== undefined) {
         return res.status(403).json({ error: "Forbidden" });
@@ -81,6 +81,8 @@ router.patch("/:id", requireAuth, (req, res) => {
     if (password) updates.passwordHash = bcrypt.hashSync(password, 10);
     if (permissions !== undefined) updates.permissions = permissions;
     if (role !== undefined) updates.role = role;
+    if (lastfmUsername !== undefined) updates.lastfmUsername = lastfmUsername;
+    if (lastfmDiscoveryPeriod !== undefined) updates.lastfmDiscoveryPeriod = lastfmDiscoveryPeriod;
     if (Object.keys(updates).length === 0) {
       return res.json({
         id: existing.id,
@@ -95,6 +97,40 @@ router.patch("/:id", requireAuth, (req, res) => {
     res
       .status(500)
       .json({ error: "Failed to update user", message: e.message });
+  }
+});
+
+router.get("/me/lastfm", requireAuth, (req, res) => {
+  try {
+    const user = userOps.getUserById(req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json({
+      lastfmUsername: user.lastfmUsername || null,
+      lastfmDiscoveryPeriod: user.lastfmDiscoveryPeriod || null,
+    });
+  } catch (e) {
+    res.status(500).json({ error: "Failed to get Last.fm settings" });
+  }
+});
+
+router.post("/me/lastfm", requireAuth, (req, res) => {
+  try {
+    const { lastfmUsername, lastfmDiscoveryPeriod } = req.body;
+    const validPeriods = ["none", "7day", "1month", "3month", "6month", "12month", "overall"];
+    if (lastfmDiscoveryPeriod && !validPeriods.includes(lastfmDiscoveryPeriod)) {
+      return res.status(400).json({ error: "Invalid discovery period" });
+    }
+    const updates = {};
+    if (lastfmUsername !== undefined) updates.lastfmUsername = lastfmUsername;
+    if (lastfmDiscoveryPeriod !== undefined) updates.lastfmDiscoveryPeriod = lastfmDiscoveryPeriod;
+    const updated = userOps.updateUser(req.user.id, updates);
+    if (!updated) return res.status(500).json({ error: "Failed to update user" });
+    res.json({
+      lastfmUsername: updated.lastfmUsername || null,
+      lastfmDiscoveryPeriod: updated.lastfmDiscoveryPeriod || null,
+    });
+  } catch (e) {
+    res.status(500).json({ error: "Failed to update Last.fm settings" });
   }
 });
 

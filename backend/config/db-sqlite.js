@@ -29,6 +29,15 @@ db.exec(`
     last_updated TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS user_discovery_cache (
+    user_id INTEGER NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    last_updated TEXT NOT NULL,
+    PRIMARY KEY (user_id, key),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS images_cache (
     mbid TEXT PRIMARY KEY,
     image_url TEXT,
@@ -41,7 +50,9 @@ db.exec(`
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user',
-    permissions TEXT
+    permissions TEXT,
+    lastfm_username TEXT,
+    lastfm_discovery_period TEXT
   );
 
   CREATE TABLE IF NOT EXISTS weekly_flow_jobs (
@@ -74,6 +85,26 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_weekly_flow_jobs_playlist_type ON weekly_flow_jobs(playlist_type);
   CREATE INDEX IF NOT EXISTS idx_images_cache_cache_age ON images_cache(cache_age);
 `);
+
+// Migrations for existing installations
+try {
+  db.exec("ALTER TABLE users ADD COLUMN lastfm_username TEXT");
+} catch (e) {
+  // Column already exists, ignore
+}
+
+try {
+  db.exec("ALTER TABLE users ADD COLUMN lastfm_discovery_period TEXT");
+} catch (e) {
+  // Column already exists, ignore
+}
+
+try {
+  // Clean up old user discovery cache entries (older than 30 days)
+  db.exec("DELETE FROM user_discovery_cache WHERE last_updated < datetime('now', '-30 days')");
+} catch (e) {
+  // Table might not exist yet in fresh installations, ignore
+}
 
 export const dbHelpers = {
   parseJSON: (text) => {

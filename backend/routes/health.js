@@ -84,6 +84,8 @@ router.get("/", noCache, async (req, res) => {
         username: currentUser.username,
         role: currentUser.role,
         permissions: currentUser.permissions,
+        lastfmUsername: currentUser.lastfmUsername || null,
+        lastfmDiscoveryPeriod: currentUser.lastfmDiscoveryPeriod || null,
       };
     }
     res.json(payload);

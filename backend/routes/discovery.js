@@ -2,6 +2,7 @@ import express from "express";
 import {
   getDiscoveryCache,
   updateDiscoveryCache,
+  updateUserDiscoveryCache,
 } from "../services/discoveryService.js";
 import {
   lastfmRequest,
@@ -9,9 +10,10 @@ import {
   clearApiCaches,
 } from "../services/apiClients.js";
 import { libraryManager } from "../services/libraryManager.js";
-import { dbOps } from "../config/db-helpers.js";
+import { dbOps, userOps } from "../config/db-helpers.js";
 import { imagePrefetchService } from "../services/imagePrefetchService.js";
 import { defaultDiscoveryPreferences } from "../config/constants.js";
+import { requireAdmin } from "../middleware/requirePermission.js";
 
 const router = express.Router();
 
@@ -21,42 +23,159 @@ const pendingTagSuggestRequest = { promise: null, expiry: 0 };
 let discoveryPreferences = { ...defaultDiscoveryPreferences };
 
 router.post("/refresh", (req, res) => {
-  const discoveryCache = getDiscoveryCache();
+  const userId = req.user?.id;
+  let discoveryCache;
+
+  if (userId) {
+    discoveryCache = getDiscoveryCache(userId);
+  } else {
+    discoveryCache = getDiscoveryCache();
+  }
+
   if (discoveryCache.isUpdating) {
     return res.status(409).json({
       message: "Discovery update already in progress",
       isUpdating: true,
     });
   }
-  updateDiscoveryCache();
+
+  if (userId) {
+    updateUserDiscoveryCache(userId);
+  } else {
+    updateDiscoveryCache();
+  }
+
   res.json({
     message: "Discovery update started",
     isUpdating: true,
   });
 });
 
+router.post("/refresh-all", requireAdmin, (req, res) => {
+  console.log(`[Discovery REFRESH-ALL] Admin triggered refresh for all caches`);
+
+  updateDiscoveryCache();
+
+  const allUsers = userOps.getAllUsers();
+  for (const user of allUsers) {
+    updateUserDiscoveryCache(user.id);
+  }
+
+  res.json({
+    message: "Discovery refresh started for global cache and all users",
+    globalRefreshStarted: true,
+    userRefreshCount: allUsers.length,
+  });
+});
+
 router.post("/clear", async (req, res) => {
-  const { clearImages = true } = req.body;
+  const { clearImages = true, scope = "user" } = req.body;
+  const userId = req.user?.id;
+  const isAdmin = req.user?.role === "admin";
 
-  dbOps.updateDiscoveryCache({
-    recommendations: [],
-    globalTop: [],
-    basedOn: [],
-    topTags: [],
-    topGenres: [],
-    lastUpdated: null,
-  });
+  if (scope === "global" || scope === "all") {
+    if (!isAdmin) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "Admin access required for global or all scope",
+      });
+    }
+  }
 
-  const discoveryCache = getDiscoveryCache();
-  Object.assign(discoveryCache, {
-    recommendations: [],
-    globalTop: [],
-    basedOn: [],
-    topTags: [],
-    topGenres: [],
-    lastUpdated: null,
-    isUpdating: false,
-  });
+  const validScopes = ["global", "all", "user"];
+  if (!validScopes.includes(scope)) {
+    return res.status(400).json({
+      error: "Invalid scope",
+      message: `Scope must be one of: ${validScopes.join(", ")}`,
+    });
+  }
+
+  console.log(`[Discovery CLEAR] Clearing cache with scope: ${scope}, user: ${userId || "anonymous"}`);
+
+  if (scope === "all") {
+    const allUsers = userOps.getAllUsers();
+    for (const user of allUsers) {
+      const userCache = getDiscoveryCache(user.id);
+      Object.assign(userCache, {
+        recommendations: [],
+        globalTop: [],
+        basedOn: [],
+        topTags: [],
+        topGenres: [],
+        lastUpdated: null,
+        isUpdating: false,
+      });
+      dbOps.clearUserDiscoveryCache(user.id);
+      console.log(`[Discovery CLEAR] Cleared cache for user ${user.id}`);
+    }
+
+    const globalCache = getDiscoveryCache();
+    Object.assign(globalCache, {
+      recommendations: [],
+      globalTop: [],
+      basedOn: [],
+      topTags: [],
+      topGenres: [],
+      lastUpdated: null,
+      isUpdating: false,
+    });
+    dbOps.updateDiscoveryCache({
+      recommendations: [],
+      globalTop: [],
+      basedOn: [],
+      topTags: [],
+      topGenres: [],
+      lastUpdated: null,
+    });
+    console.log(`[Discovery CLEAR] Cleared global cache`);
+  } else if (scope === "global") {
+    const globalCache = getDiscoveryCache();
+    Object.assign(globalCache, {
+      recommendations: [],
+      globalTop: [],
+      basedOn: [],
+      topTags: [],
+      topGenres: [],
+      lastUpdated: null,
+      isUpdating: false,
+    });
+    dbOps.updateDiscoveryCache({
+      recommendations: [],
+      globalTop: [],
+      basedOn: [],
+      topTags: [],
+      topGenres: [],
+      lastUpdated: null,
+    });
+    console.log(`[Discovery CLEAR] Cleared global cache`);
+  } else {
+    if (userId) {
+      const userCache = getDiscoveryCache(userId);
+      Object.assign(userCache, {
+        recommendations: [],
+        globalTop: [],
+        basedOn: [],
+        topTags: [],
+        topGenres: [],
+        lastUpdated: null,
+        isUpdating: false,
+      });
+      dbOps.clearUserDiscoveryCache(userId);
+      console.log(`[Discovery CLEAR] Cleared user-specific cache for user ${userId}`);
+    } else {
+      const globalCache = getDiscoveryCache();
+      Object.assign(globalCache, {
+        recommendations: [],
+        globalTop: [],
+        basedOn: [],
+        topTags: [],
+        topGenres: [],
+        lastUpdated: null,
+        isUpdating: false,
+      });
+      console.log(`[Discovery CLEAR] Cleared global cache for anonymous user`);
+    }
+  }
 
   clearApiCaches();
 
@@ -76,9 +195,25 @@ router.post("/clear", async (req, res) => {
 });
 
 router.get("/", async (req, res) => {
+  // Check if user is authenticated and has Last.fm settings
+  const userId = req.user?.id;
   const hasLastfmKey = !!getLastfmApiKey();
+
+  let discoveryCache;
+  if (userId) {
+    // Use user-specific cache if user is authenticated
+    discoveryCache = getDiscoveryCache(userId);
+  } else {
+    // Use global cache for backward compatibility
+    discoveryCache = getDiscoveryCache();
+  }
+
   const settings = dbOps.getSettings();
-  const lastfmUsername = settings.integrations?.lastfm?.username || null;
+  const globalLastfmUsername = settings.integrations?.lastfm?.username || null;
+  
+  // Fetch full user record to get user-specific Last.fm settings
+  const fullUser = userId ? userOps.getUserById(userId) : null;
+  const lastfmUsername = userId && fullUser ? fullUser.lastfmUsername : globalLastfmUsername;
   const hasLastfmUser = hasLastfmKey && lastfmUsername;
   const libraryArtists = await libraryManager.getAllArtists();
   const hasArtists = libraryArtists.length > 0;
@@ -101,7 +236,6 @@ router.get("/", async (req, res) => {
       });
     }
 
-    const discoveryCache = getDiscoveryCache();
     Object.assign(discoveryCache, {
       recommendations: [],
       globalTop: [],
@@ -125,8 +259,13 @@ router.get("/", async (req, res) => {
     });
   }
 
-  const discoveryCache = getDiscoveryCache();
-  const dbData = dbOps.getDiscoveryCache();
+  // Fetch database data - use user-specific cache if authenticated, otherwise global
+  let dbData;
+  if (userId) {
+    dbData = dbOps.getUserDiscoveryCache(userId);
+  } else {
+    dbData = dbOps.getDiscoveryCache();
+  }
 
   const hasData =
     dbData.recommendations?.length > 0 ||
@@ -139,9 +278,18 @@ router.get("/", async (req, res) => {
   let isUpdating = discoveryCache.isUpdating || false;
 
   if (!hasData && !isUpdating) {
-    updateDiscoveryCache().catch((err) => {
-      console.error("[Discover] Lazy discovery refresh failed:", err.message);
-    });
+    // Update user-specific cache if user is authenticated, otherwise update global cache
+    if (userId) {
+      console.log(`[Discovery GET] No data found for user ${userId}, triggering lazy refresh`);
+      updateUserDiscoveryCache(userId).catch((err) => {
+        console.error(`[Discover] Lazy discovery refresh failed for user ${userId}:`, err.message);
+      });
+    } else {
+      console.log(`[Discovery GET] No data found for anonymous user, triggering lazy refresh`);
+      updateDiscoveryCache().catch((err) => {
+        console.error("[Discover] Lazy discovery refresh failed:", err.message);
+      });
+    }
     isUpdating = true;
   }
 
@@ -232,7 +380,8 @@ router.get("/", async (req, res) => {
 });
 
 router.get("/related", (req, res) => {
-  const discoveryCache = getDiscoveryCache();
+  const userId = req.user?.id;
+  const discoveryCache = userId ? getDiscoveryCache(userId) : getDiscoveryCache();
   res.json({
     recommendations: discoveryCache.recommendations,
     basedOn: discoveryCache.basedOn,
@@ -241,7 +390,8 @@ router.get("/related", (req, res) => {
 });
 
 router.get("/similar", (req, res) => {
-  const discoveryCache = getDiscoveryCache();
+  const userId = req.user?.id;
+  const discoveryCache = userId ? getDiscoveryCache(userId) : getDiscoveryCache();
   res.json({
     topTags: discoveryCache.topTags,
     topGenres: discoveryCache.topGenres,
@@ -382,7 +532,8 @@ router.get("/by-tag", async (req, res) => {
         }
       }
     } else {
-      const discoveryCache = getDiscoveryCache();
+      const userId = req.user?.id;
+      const discoveryCache = userId ? getDiscoveryCache(userId) : getDiscoveryCache();
       const tagLower = String(tag).trim().toLowerCase();
       const matches = (discoveryCache.recommendations || []).filter((artist) => {
         const tags = Array.isArray(artist.tags) ? artist.tags : [];
@@ -534,7 +685,8 @@ router.delete("/preferences/exclude-artist/:artistId", (req, res) => {
 
 router.get("/filtered", async (req, res) => {
   try {
-    const discoveryCache = getDiscoveryCache();
+    const userId = req.user?.id;
+    const discoveryCache = userId ? getDiscoveryCache(userId) : getDiscoveryCache();
     let recommendations = discoveryCache.recommendations || [];
     let globalTop = discoveryCache.globalTop || [];
 

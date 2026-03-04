@@ -147,6 +147,8 @@ function resolveUser(username, password) {
     username: u.username,
     role: u.role,
     permissions: perms,
+    lastfmUsername: u.lastfmUsername || null,
+    lastfmDiscoveryPeriod: u.lastfmDiscoveryPeriod || null,
   };
 }
 

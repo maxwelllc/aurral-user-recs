@@ -1,5 +1,7 @@
 import { UserPlus, Lock, Pencil, Trash2, X } from "lucide-react";
 import { GRANULAR_PERMISSIONS, granularPerms } from "../constants";
+import { UserLastfmSettings } from "./UserLastfmSettings";
+import { updateUserLastfmSettings } from "../../../utils/api";
 
 export function SettingsUsersTab({
   authUser,
@@ -74,13 +76,14 @@ export function SettingsUsersTab({
       </div>
 
       {authUser?.role !== "admin" ? (
-        <div
-          className="p-6 rounded-lg space-y-5 max-w-md"
-          style={{
-            backgroundColor: "#1a1a1e",
-            boxShadow: "0 0 0 1px #2a2a2e",
-          }}
-        >
+        <div className="space-y-6 max-w-md">
+          <div
+            className="p-6 rounded-lg space-y-5"
+            style={{
+              backgroundColor: "#1a1a1e",
+              boxShadow: "0 0 0 1px #2a2a2e",
+            }}
+          >
           <h3 className="text-lg font-medium flex items-center gap-2 text-main">
             <Lock className="w-5 h-5 text-[#707e61]" />
             Change my password
@@ -169,6 +172,13 @@ export function SettingsUsersTab({
               {changingPassword ? "Changing…" : "Change password"}
             </button>
           </form>
+          </div>
+          <UserLastfmSettings
+            user={authUser}
+            onUpdate={updateUserLastfmSettings}
+            showSuccess={showSuccess}
+            showError={showError}
+          />
         </div>
       ) : (
         <>
@@ -615,38 +625,54 @@ export function SettingsUsersTab({
                     )}
                   </div>
                   {!isSelfEdit && (
-                    <div className="space-y-3">
-                      <label className="label text-sub font-normal text-xs uppercase tracking-wider">
-                        Permissions
-                      </label>
-                      <div
-                        className="p-4 rounded-lg space-y-3"
-                        style={{
-                          backgroundColor: "#1a1a1e",
-                          boxShadow: "0 0 0 1px #2a2a2e",
-                        }}
-                      >
-                        {granularPerms.map(({ key, label }) => (
-                          <label
-                            key={key}
-                            className="flex items-center gap-3 cursor-pointer text-sub hover:text-main transition-colors"
-                          >
-                            <input
-                              type="checkbox"
-                              className="rounded border-gray-600 text-[#707e61] focus:ring-[#707e61]"
-                              checked={!!editPermissions[key]}
-                              onChange={(e) =>
-                                setEditPermissions((p) => ({
-                                  ...p,
-                                  [key]: e.target.checked,
-                                }))
-                              }
-                            />
-                            <span className="text-sm">{label}</span>
-                          </label>
-                        ))}
+                    <>
+                      <div className="space-y-3">
+                        <label className="label text-sub font-normal text-xs uppercase tracking-wider">
+                          Permissions
+                        </label>
+                        <div
+                          className="p-4 rounded-lg space-y-3"
+                          style={{
+                            backgroundColor: "#1a1a1e",
+                            boxShadow: "0 0 0 1px #2a2a2e",
+                          }}
+                        >
+                          {granularPerms.map(({ key, label }) => (
+                            <label
+                              key={key}
+                              className="flex items-center gap-3 cursor-pointer text-sub hover:text-main transition-colors"
+                            >
+                              <input
+                                type="checkbox"
+                                className="rounded border-gray-600 text-[#707e61] focus:ring-[#707e61]"
+                                checked={!!editPermissions[key]}
+                                onChange={(e) =>
+                                  setEditPermissions((p) => ({
+                                    ...p,
+                                    [key]: e.target.checked,
+                                  }))
+                                }
+                              />
+                              <span className="text-sm">{label}</span>
+                            </label>
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                      <div className="space-y-3">
+                        <label className="label text-sub font-normal text-xs uppercase tracking-wider">
+                          Last.fm Integration
+                        </label>
+                        <UserLastfmSettings
+                          user={editUser}
+                          onUpdate={async (data) => {
+                            await updateUser(editUser.id, data);
+                            refreshUsers();
+                          }}
+                          showSuccess={showSuccess}
+                          showError={showError}
+                        />
+                      </div>
+                    </>
                   )}
                   <div
                     className="flex gap-3 justify-end pt-4 mt-4"

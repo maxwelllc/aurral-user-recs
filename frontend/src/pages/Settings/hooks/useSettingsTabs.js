@@ -17,7 +17,7 @@ export function useSettingsTabs(authUser) {
       { id: "users", label: "Users", icon: Users },
     ];
     if (authUser?.role !== "admin") {
-      return all.filter((t) => t.id === "users");
+      return all.filter((t) => t.id === "users" || t.id === "metadata");
     }
     return all;
   }, [authUser?.role]);

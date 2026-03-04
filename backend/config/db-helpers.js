@@ -17,6 +17,16 @@ const upsertDiscoveryCacheStmt = db.prepare(
   "INSERT OR REPLACE INTO discovery_cache (key, value, last_updated) VALUES (?, ?, ?)"
 );
 
+const getUserDiscoveryCacheStmt = db.prepare(
+  "SELECT value, last_updated FROM user_discovery_cache WHERE user_id = ? AND key = ?"
+);
+const upsertUserDiscoveryCacheStmt = db.prepare(
+  "INSERT OR REPLACE INTO user_discovery_cache (user_id, key, value, last_updated) VALUES (?, ?, ?, ?)"
+);
+const deleteExpiredUserDiscoveryCacheStmt = db.prepare(
+  "DELETE FROM user_discovery_cache WHERE last_updated < datetime('now', '-30 days')"
+);
+
 const getImageStmt = db.prepare("SELECT * FROM images_cache WHERE mbid = ?");
 const upsertImageStmt = db.prepare(
   "INSERT OR REPLACE INTO images_cache (mbid, image_url, cache_age, created_at) VALUES (?, ?, ?, ?)"
@@ -49,14 +59,14 @@ const getUserByUsernameStmt = db.prepare(
   "SELECT * FROM users WHERE username = ?"
 );
 const getAllUsersStmt = db.prepare(
-  "SELECT id, username, role, permissions FROM users ORDER BY username"
+  "SELECT id, username, role, permissions, lastfm_username, lastfm_discovery_period FROM users ORDER BY username"
 );
 const getUserByIdStmt = db.prepare("SELECT * FROM users WHERE id = ?");
 const insertUserStmt = db.prepare(
-  "INSERT INTO users (username, password_hash, role, permissions) VALUES (?, ?, ?, ?)"
+  "INSERT INTO users (username, password_hash, role, permissions, lastfm_username, lastfm_discovery_period) VALUES (?, ?, ?, ?, ?, ?)"
 );
 const updateUserStmt = db.prepare(
-  "UPDATE users SET username = ?, password_hash = ?, role = ?, permissions = ? WHERE id = ?"
+  "UPDATE users SET username = ?, password_hash = ?, role = ?, permissions = ?, lastfm_username = ?, lastfm_discovery_period = ? WHERE id = ?"
 );
 const deleteUserStmt = db.prepare("DELETE FROM users WHERE id = ?");
 
@@ -85,6 +95,8 @@ export const userOps = {
       permissions: dbHelpers.parseJSON(row.permissions) || {
         ...DEFAULT_PERMISSIONS,
       },
+      lastfmUsername: row.lastfm_username || null,
+      lastfmDiscoveryPeriod: row.lastfm_discovery_period || null,
     };
   },
   getUserById(id) {
@@ -98,6 +110,8 @@ export const userOps = {
       permissions: dbHelpers.parseJSON(row.permissions) || {
         ...DEFAULT_PERMISSIONS,
       },
+      lastfmUsername: row.lastfm_username || null,
+      lastfmDiscoveryPeriod: row.lastfm_discovery_period || null,
     };
   },
   getAllUsers() {
@@ -109,9 +123,11 @@ export const userOps = {
       permissions: dbHelpers.parseJSON(r.permissions) || {
         ...DEFAULT_PERMISSIONS,
       },
+      lastfmUsername: r.lastfm_username || null,
+      lastfmDiscoveryPeriod: r.lastfm_discovery_period || null,
     }));
   },
-  createUser(username, passwordHash, role = "user", permissions = null) {
+  createUser(username, passwordHash, role = "user", permissions = null, lastfmUsername = null, lastfmDiscoveryPeriod = null) {
     const un = String(username).trim();
     if (!un) return null;
     const perms = permissions
@@ -122,13 +138,17 @@ export const userOps = {
         un.toLowerCase(),
         passwordHash,
         role,
-        dbHelpers.stringifyJSON(perms)
+        dbHelpers.stringifyJSON(perms),
+        lastfmUsername,
+        lastfmDiscoveryPeriod
       );
       return {
         id: result.lastInsertRowid,
         username: un,
         role,
         permissions: perms,
+        lastfmUsername,
+        lastfmDiscoveryPeriod,
       };
     } catch (e) {
       return null;
@@ -150,15 +170,25 @@ export const userOps = {
       data.permissions !== undefined
         ? { ...DEFAULT_PERMISSIONS, ...data.permissions }
         : existing.permissions;
+    const lastfmUsername =
+      data.lastfmUsername !== undefined
+        ? data.lastfmUsername
+        : existing.lastfmUsername;
+    const lastfmDiscoveryPeriod =
+      data.lastfmDiscoveryPeriod !== undefined
+        ? data.lastfmDiscoveryPeriod
+        : existing.lastfmDiscoveryPeriod;
     try {
       updateUserStmt.run(
         username.toLowerCase(),
         passwordHash,
         role,
         dbHelpers.stringifyJSON(permissions),
+        lastfmUsername,
+        lastfmDiscoveryPeriod,
         parseInt(id, 10)
       );
-      return { id: parseInt(id, 10), username, role, permissions };
+      return { id: parseInt(id, 10), username, role, permissions, lastfmUsername, lastfmDiscoveryPeriod };
     } catch (e) {
       return null;
     }
@@ -370,6 +400,102 @@ export const dbOps = {
       }
     });
     updateFn();
+  },
+
+  getUserDiscoveryCache(userId) {
+    const recommendations = dbHelpers.parseJSON(
+      getUserDiscoveryCacheStmt.get(userId, "recommendations")?.value
+    );
+    const globalTop = dbHelpers.parseJSON(
+      getUserDiscoveryCacheStmt.get(userId, "globalTop")?.value
+    );
+    const basedOn = dbHelpers.parseJSON(
+      getUserDiscoveryCacheStmt.get(userId, "basedOn")?.value
+    );
+    const topTags = dbHelpers.parseJSON(
+      getUserDiscoveryCacheStmt.get(userId, "topTags")?.value
+    );
+    const topGenres = dbHelpers.parseJSON(
+      getUserDiscoveryCacheStmt.get(userId, "topGenres")?.value
+    );
+    const lastUpdated = getUserDiscoveryCacheStmt.get(userId, "lastUpdated")?.last_updated;
+
+    return {
+      recommendations: recommendations || [],
+      globalTop: globalTop || [],
+      basedOn: basedOn || [],
+      topTags: topTags || [],
+      topGenres: topGenres || [],
+      lastUpdated,
+    };
+  },
+
+  updateUserDiscoveryCache(userId, discovery) {
+    const now = new Date().toISOString();
+    const updateFn = db.transaction(() => {
+      if (discovery.recommendations) {
+        upsertUserDiscoveryCacheStmt.run(
+          userId,
+          "recommendations",
+          dbHelpers.stringifyJSON(discovery.recommendations),
+          now
+        );
+      }
+      if (discovery.globalTop) {
+        upsertUserDiscoveryCacheStmt.run(
+          userId,
+          "globalTop",
+          dbHelpers.stringifyJSON(discovery.globalTop),
+          now
+        );
+      }
+      if (discovery.basedOn) {
+        upsertUserDiscoveryCacheStmt.run(
+          userId,
+          "basedOn",
+          dbHelpers.stringifyJSON(discovery.basedOn),
+          now
+        );
+      }
+      if (discovery.topTags) {
+        upsertUserDiscoveryCacheStmt.run(
+          userId,
+          "topTags",
+          dbHelpers.stringifyJSON(discovery.topTags),
+          now
+        );
+      }
+      if (discovery.topGenres) {
+        upsertUserDiscoveryCacheStmt.run(
+          userId,
+          "topGenres",
+          dbHelpers.stringifyJSON(discovery.topGenres),
+          now
+        );
+      }
+    });
+    updateFn();
+  },
+
+  cleanExpiredUserDiscoveryCaches() {
+    try {
+      const result = deleteExpiredUserDiscoveryCacheStmt.run();
+      return result;
+    } catch (e) {
+      console.warn("[Discovery] Failed to clean expired user discovery caches:", e.message);
+      return null;
+    }
+  },
+
+  clearUserDiscoveryCache(userId) {
+    try {
+      const stmt = db.prepare("DELETE FROM user_discovery_cache WHERE user_id = ?");
+      const result = stmt.run(userId);
+      return result;
+    } catch (e) {
+      console.warn("[Discovery] Failed to clear user discovery cache:", e.message);
+      return null;
+    }
   },
 
   getImage(mbid) {

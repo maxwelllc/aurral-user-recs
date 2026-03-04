@@ -565,4 +565,15 @@ export const stopFlowWorker = async () => {
   return response.data;
 };
 
+// User Last.fm settings
+export const getUserLastfmSettings = async () => {
+  const response = await api.get("/users/me/lastfm");
+  return response.data;
+};
+
+export const updateUserLastfmSettings = async (data) => {
+  const response = await api.post("/users/me/lastfm", data);
+  return response.data;
+};
+
 export default api;
