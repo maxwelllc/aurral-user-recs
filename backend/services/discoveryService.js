@@ -153,7 +153,7 @@ export const updateDiscoveryCache = async (userId = null) => {
 
   try {
     const { libraryManager } = await import("./libraryManager.js");
-    const libraryArtists = await libraryManager.getAllArtists();
+    const libraryArtists = await libraryManager.getRecentArtists(25);
     console.log(`Found ${libraryArtists.length} artists in library.`);
 
     const existingArtistIds = new Set(libraryArtists.map((a) => a.mbid));
